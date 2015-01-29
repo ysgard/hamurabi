@@ -17,6 +17,7 @@ executable hamurabi
   --other-modules
   --other-extensions
   build-depends: base >=4.6
+               , random
   hs-source-dirs: src
   ghc-options: -Wall
   default-language: Haskell2010
