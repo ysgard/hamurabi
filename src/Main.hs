@@ -10,8 +10,10 @@ Portability: POSIX
 -}
 module Main where
 
+import System.Exit (exitSuccess)
 import System.IO (stdout, hFlush)
-import System.Random (getStdRandom, random)
+import System.Random (getStdRandom, random, randomR)
+import Text.Read (readMaybe)
 
 data Population = Population { people :: Int -- total population
                              , new :: Int -- immigration this year
@@ -45,18 +47,27 @@ intro = do
   putStrLn "FOR A TEN-YEAR TERM OF OFFICE."
   putStrLn ""
 
+end :: IO ()
+end = putStrLn "" >> putStrLn "SO LONG FOR NOW."
+
+stewardMad :: IO ()
+stewardMad = do
+  putStrLn ""
+  putStrLn "HAMURABI:  I CANNOT DO WHAT YOU WISH."
+  putStrLn "GET YOURSELF ANOTHER STEWARD!!!!!"
+  end
+
 tallyScore :: Int -> Int -> Score -> IO ()
-tallyScore pop acres (Score died percentage) = do
-  putStrLn $ "IN YOUR 10-YEAR TERM OF OFFICE, " ++ show percentage ++
-    " PERCENT OF THE"
+tallyScore pop acres (Score d p) = do
+  putStrLn $ "IN YOUR 10-YEAR TERM OF OFFICE, " ++ show p ++ " PERCENT OF THE"
   putStrLn "POPULATION STARVED PER YEAR ON THE AVERAGE, I.E. A TOTAL OF"
-  putStrLn $ show died ++ " PEOPLE DIED!!"
+  putStrLn $ show d ++ " PEOPLE DIED!!"
   let efficiency = acres `div` pop
   putStrLn ""
   putStrLn "YOU STARTED WITH 10 ACRES PER PERSON AND ENDED WITH"
   putStrLn $ show efficiency ++ " ACRES PER PERSON."
   putStrLn ""
-  performance percentage efficiency died pop
+  performance p efficiency d pop
 
 performance :: Double -> Int -> Int -> Int -> IO ()
 performance p e d pop
@@ -89,6 +100,7 @@ oops dead = do
 
 report :: Kingdom -> IO ()
 report (Kingdom y p pop agri) = do
+  putStrLn ""
   putStrLn "HAMURABI:  I BEG TO REPORT TO YOU,"
   putStrLn $ "IN YEAR " ++ show y ++ " , " ++
     show (starved pop) ++ " PEOPLE STARVED, " ++
@@ -113,13 +125,174 @@ loop k@(Kingdom y p pop agri) s
       loop newKingdom newScore
       
 
+-- Get input
+ask :: String -> IO Int
+ask prompt = do
+  putStr $ prompt ++ " "
+  hFlush stdout
+  a <- getLine
+  case ((readMaybe a) :: Maybe Int) of
+   Nothing -> putStrLn "INVALID INPUT" >> ask prompt
+   Just n -> case (n < 0) of
+              True -> do
+                stewardMad
+                exitSuccess
+              False -> return n
+
 updateKingdom :: Kingdom -> IO Kingdom
-updateKingdom k@(Kingdom y p pop agri) = undefined
+updateKingdom k@(Kingdom y p pop agri) = unsetPlague k >>=
+                                         buySellAcres >>=
+                                         feedPeople >>=
+                                         plantAcres >>=
+                                         immigration >>=
+                                         gotPlague >>=
+                                         updateYear
   
-                                 
+updateYear :: Kingdom -> IO Kingdom
+updateYear (Kingdom y p pop agri) = return (Kingdom (y + 1) p pop agri)
+
+unsetPlague :: Kingdom -> IO Kingdom
+unsetPlague (Kingdom y pl pop agri) = return (Kingdom y False pop agri)
+
+gotPlague :: Kingdom -> IO Kingdom
+gotPlague k@(Kingdom y pl pop@(Population p n s) agri) = do
+  plague <- percentChance 15
+  if plague
+    then return (Kingdom y True (Population (p `div` 2) n s) agri)
+    else return k
+
+immigration :: Kingdom -> IO Kingdom
+immigration (Kingdom y pl pop@(Population p n s) agri@(Agriculture b a h r)) = do
+  c <- getStdRandom $ randomR (1, 5) :: IO Int
+  let cd = fromIntegral c :: Double
+      ad = fromIntegral a :: Double
+      bd = fromIntegral b :: Double
+      pd = fromIntegral p :: Double
+      i = floor $ 1 + (cd * (20 * ad + bd) / (pd * 100)) :: Int
+  return (Kingdom y pl (Population (p + i) i s) agri)
+
+plantAcres :: Kingdom -> IO Kingdom
+plantAcres k@(Kingdom y p pop agri@(Agriculture b a h r)) = do
+  planted <- ask "HOW MANY ACRES DO YOU WISH TO PLANT WITH SEED?"
+  check planted
+  letsPlant planted
+  where letsPlant :: Int -> IO Kingdom
+        letsPlant x
+          | x > a = do
+              notEnoughAcres a
+              plantAcres k
+          | x `div` 2 > b = do
+              notEnoughGrain b
+              plantAcres k
+          | x > 10 * (people pop) = do
+              notEnoughPeople (people pop)
+              plantAcres k
+          | otherwise = do
+              -- bountiful harvest
+              i <- getStdRandom $ randomR (1, 5) :: IO Int
+              let r = if even i then b `div` i else 0
+              return (Kingdom y p pop
+                      (Agriculture (b + x*i - r) a (x*i) r)) 
+              
+              
+
+buySellAcres :: Kingdom -> IO Kingdom
+buySellAcres k@(Kingdom y p pop agri@(Agriculture b a h r)) = do
+  landPrice <- getStdRandom $ randomR (17, 27) :: IO Int
+  putStrLn $ "LAND IS TRADING AT " ++ show landPrice ++ " BUSHELS PER ACRE."
+  acresBought <- buyAcres landPrice b
+  if acresBought > 0
+    then return (Kingdom y p pop (Agriculture (b - (acresBought * landPrice))
+                                  (a + acresBought)
+                                  h r))
+    else do acresSold <- sellAcres landPrice a
+            return (Kingdom y p pop (Agriculture (b + (acresSold * landPrice))
+                                      (a - acresSold)
+                                      h r))
+
+notEnoughGrain :: Int -> IO ()
+notEnoughGrain x = do
+  putStrLn "HAMURABI:  THINK AGAIN.  YOU HAVE ONLY "
+  putStrLn $ show x ++ " BUSHELS OF GRAIN.  NOW THEN,"
+
+notEnoughAcres :: Int -> IO ()
+notEnoughAcres x = do
+  putStrLn "HAMURABI:  THINK AGAIN.  YOU OWN ONLY "
+  putStrLn $ show x ++ " ACRES OF LAND.  NOW THEN,"
+
+notEnoughPeople :: Int -> IO ()
+notEnoughPeople x = do
+  putStrLn $ "HAMURABI:  BUT YOU HAVE ONLY" ++ show x
+  putStrLn "PEOPLE TO TEND THE FIELDS!  NOW THEN,"
+  
+              
+-- Each person needs 20 bushels a year for food.
+feedPeople :: Kingdom -> IO Kingdom
+feedPeople k@(Kingdom y pl pop@(Population p n s) agri@(Agriculture b a h r)) = do
+  food <- ask "HOW MANY BUSHELS DO YOU WISH TO FEED YOUR PEOPLE?"
+  check food
+  if food > b
+    then do notEnoughGrain b
+            feedPeople k
+    else do let starved = checkStarvation food p
+            if starved > (ceiling (0.45 * (fromIntegral p :: Double)) :: Int)
+              then do oops starved
+                      end
+                      exitSuccess
+              else return (Kingdom y pl (Population (p - starved) n (s + starved))
+                           (Agriculture (b - food) a h r))
+  where checkStarvation :: Int -> Int -> Int
+        checkStarvation fud people
+          | fud < people * 20 = (people * 20 - fud) `div` 20
+          | otherwise = 0
+                   
+                
+                                                     
+
+buyAcres :: Int -> Int -> IO Int
+buyAcres pricePerAcre bushels = do
+  acresBought <- ask "HOW MANY ACRES DO YOU WISH TO BUY?"
+  check acresBought
+  if acresBought * pricePerAcre <= bushels
+    then return acresBought
+    else do notEnoughGrain bushels
+            buyAcres pricePerAcre bushels
+  
+sellAcres :: Int -> Int -> IO Int
+sellAcres pricePerAcre acres = do
+  acresSold <- ask "HOM MANY ACRES DO YOU WISH TO SELL"
+  check acresSold
+  if acresSold <= acres
+    then return acresSold
+    else do notEnoughAcres acres
+            sellAcres pricePerAcre acres
+
+-- Check for <0 in input
+check :: Int -> IO ()
+check n
+  | n < 0 = do
+      stewardMad
+      exitSuccess
+  | otherwise = return ()
+
+
 
 updateScore :: Score -> Kingdom -> Score
-updateScore s k = undefined
+updateScore (Score d pct) (Kingdom y pl (Population p _ s) _) =
+  (Score (d + pox + s) newpct)
+  where pox = if pl then p else 0
+        newpct = (starvedPct + (pct * dpy)) / dy
+          where sd = fromIntegral s :: Double
+                pd = fromIntegral p :: Double
+                dpy = fromIntegral (y - 1) :: Double
+                dy = fromIntegral y :: Double
+                starvedPct = (sd / pd) * 100 
+
+-- -- Takes a percentage, returns true if it happened, false otherwise.
+percentChance :: Int -> IO Bool
+percentChance n = do
+  r <- getStdRandom $ randomR (1, 100) :: IO Int -- Return random number from 1 to 100
+  return $ r <= n
 
 
 main :: IO ()
@@ -128,5 +301,4 @@ main = do
   let initial = Kingdom 1 False (Population 100 5 0) (Agriculture 2800 1000 3 200)
       score = Score 0 0
   loop initial score
-  putStrLn ""
-  putStrLn "SO LONG FOR NOW."
+  end
