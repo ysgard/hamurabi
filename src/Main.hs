@@ -50,6 +50,7 @@ intro = do
 end :: IO ()
 end = putStrLn "" >> putStrLn "SO LONG FOR NOW."
 
+
 stewardMad :: IO ()
 stewardMad = do
   putStrLn ""
@@ -58,11 +59,11 @@ stewardMad = do
   end
 
 tallyScore :: Int -> Int -> Score -> IO ()
-tallyScore pop acres (Score d p) = do
+tallyScore pop a (Score d p) = do
   putStrLn $ "IN YOUR 10-YEAR TERM OF OFFICE, " ++ show p ++ " PERCENT OF THE"
   putStrLn "POPULATION STARVED PER YEAR ON THE AVERAGE, I.E. A TOTAL OF"
   putStrLn $ show d ++ " PEOPLE DIED!!"
-  let efficiency = acres `div` pop
+  let efficiency = a `div` pop
   putStrLn ""
   putStrLn "YOU STARTED WITH 10 ACRES PER PERSON AND ENDED WITH"
   putStrLn $ show efficiency ++ " ACRES PER PERSON."
@@ -78,7 +79,7 @@ performance p e d pop
           putStrLn "FRANKLY, HATE YOUR GUTS!!"
       | p > 3.0 || e < 10 = do
           c <- getStdRandom random :: IO Double
-          let a = floor $ (fromIntegral pop) * 0.8 * c
+          let a = floor $ (fromIntegral pop) * 0.8 * c :: Int
           putStrLn "YOUR PERFORMANCE COULD HAVE BEEN SOMEWHAT BETTER, BUT"
           putStrLn $ "REALLY WASN'T TOO BAD AT ALL.  " ++ show a ++ " PEOPLE"
           putStrLn "DEARLY LIKE TO SEE YOU ASSASSINATED BUT WE ALL HAVE OUR"
@@ -116,7 +117,7 @@ report (Kingdom y p pop agri) = do
   putStrLn ""
 
 loop :: Kingdom -> Score -> IO ()
-loop k@(Kingdom y p pop agri) s
+loop k@(Kingdom y _ pop agri) s
   | y == 11 = tallyScore (people pop) (acres agri) s
   | otherwise = do
       report k
@@ -140,29 +141,29 @@ ask prompt = do
               False -> return n
 
 updateKingdom :: Kingdom -> IO Kingdom
-updateKingdom k@(Kingdom y p pop agri) = unsetPlague k >>=
-                                         buySellAcres >>=
-                                         feedPeople >>=
-                                         plantAcres >>=
-                                         immigration >>=
-                                         gotPlague >>=
-                                         updateYear
+updateKingdom k = unsetPlague k >>=
+                  buySellAcres  >>=
+                  feedPeople    >>=
+                  plantAcres    >>=
+                  immigration   >>=
+                  gotPlague     >>=
+                  updateYear
   
 updateYear :: Kingdom -> IO Kingdom
 updateYear (Kingdom y p pop agri) = return (Kingdom (y + 1) p pop agri)
 
 unsetPlague :: Kingdom -> IO Kingdom
-unsetPlague (Kingdom y pl pop agri) = return (Kingdom y False pop agri)
+unsetPlague (Kingdom y _ pop agri) = return (Kingdom y False pop agri)
 
 gotPlague :: Kingdom -> IO Kingdom
-gotPlague k@(Kingdom y pl pop@(Population p n s) agri) = do
-  plague <- percentChance 15
-  if plague
+gotPlague k@(Kingdom y _ (Population p n s) agri) = do
+  pc <- percentChance 15
+  if pc
     then return (Kingdom y True (Population (p `div` 2) n s) agri)
     else return k
 
 immigration :: Kingdom -> IO Kingdom
-immigration (Kingdom y pl pop@(Population p n s) agri@(Agriculture b a h r)) = do
+immigration (Kingdom y pl (Population p _ s) agri@(Agriculture b a _ _)) = do
   c <- getStdRandom $ randomR (1, 5) :: IO Int
   let cd = fromIntegral c :: Double
       ad = fromIntegral a :: Double
@@ -172,7 +173,7 @@ immigration (Kingdom y pl pop@(Population p n s) agri@(Agriculture b a h r)) = d
   return (Kingdom y pl (Population (p + i) i s) agri)
 
 plantAcres :: Kingdom -> IO Kingdom
-plantAcres k@(Kingdom y p pop agri@(Agriculture b a h r)) = do
+plantAcres k@(Kingdom y p pop (Agriculture b a _ _)) = do
   planted <- ask "HOW MANY ACRES DO YOU WISH TO PLANT WITH SEED?"
   check planted
   letsPlant planted
@@ -197,7 +198,7 @@ plantAcres k@(Kingdom y p pop agri@(Agriculture b a h r)) = do
               
 
 buySellAcres :: Kingdom -> IO Kingdom
-buySellAcres k@(Kingdom y p pop agri@(Agriculture b a h r)) = do
+buySellAcres (Kingdom y p pop (Agriculture b a h r)) = do
   landPrice <- getStdRandom $ randomR (17, 27) :: IO Int
   putStrLn $ "LAND IS TRADING AT " ++ show landPrice ++ " BUSHELS PER ACRE."
   acresBought <- buyAcres landPrice b
@@ -222,50 +223,47 @@ notEnoughAcres x = do
 
 notEnoughPeople :: Int -> IO ()
 notEnoughPeople x = do
-  putStrLn $ "HAMURABI:  BUT YOU HAVE ONLY" ++ show x
+  putStrLn $ "HAMURABI:  BUT YOU HAVE ONLY " ++ show x
   putStrLn "PEOPLE TO TEND THE FIELDS!  NOW THEN,"
   
               
 -- Each person needs 20 bushels a year for food.
 feedPeople :: Kingdom -> IO Kingdom
-feedPeople k@(Kingdom y pl pop@(Population p n s) agri@(Agriculture b a h r)) = do
+feedPeople k@(Kingdom y pl (Population p n _) (Agriculture b a h r)) = do
   food <- ask "HOW MANY BUSHELS DO YOU WISH TO FEED YOUR PEOPLE?"
   check food
   if food > b
     then do notEnoughGrain b
             feedPeople k
-    else do let starved = checkStarvation food p
-            if starved > (ceiling (0.45 * (fromIntegral p :: Double)) :: Int)
-              then do oops starved
+    else do let stv = checkStarvation food p
+            if stv > (ceiling (0.45 * (fromIntegral p :: Double)) :: Int)
+              then do oops stv
                       end
                       exitSuccess
-              else return (Kingdom y pl (Population (p - starved) n (s + starved))
+              else return (Kingdom y pl (Population (p - stv) n stv)
                            (Agriculture (b - food) a h r))
   where checkStarvation :: Int -> Int -> Int
-        checkStarvation fud people
-          | fud < people * 20 = (people * 20 - fud) `div` 20
+        checkStarvation fud ppl
+          | fud < ppl * 20 = (ppl * 20 - fud) `div` 20
           | otherwise = 0
-                   
-                
-                                                     
 
 buyAcres :: Int -> Int -> IO Int
-buyAcres pricePerAcre bushels = do
+buyAcres pricePerAcre b = do
   acresBought <- ask "HOW MANY ACRES DO YOU WISH TO BUY?"
   check acresBought
-  if acresBought * pricePerAcre <= bushels
+  if acresBought * pricePerAcre <= b
     then return acresBought
-    else do notEnoughGrain bushels
-            buyAcres pricePerAcre bushels
+    else do notEnoughGrain b
+            buyAcres pricePerAcre b
   
 sellAcres :: Int -> Int -> IO Int
-sellAcres pricePerAcre acres = do
+sellAcres pricePerAcre a = do
   acresSold <- ask "HOM MANY ACRES DO YOU WISH TO SELL"
   check acresSold
-  if acresSold <= acres
+  if acresSold <= a
     then return acresSold
-    else do notEnoughAcres acres
-            sellAcres pricePerAcre acres
+    else do notEnoughAcres a
+            sellAcres pricePerAcre a
 
 -- Check for <0 in input
 check :: Int -> IO ()
