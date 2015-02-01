@@ -36,7 +36,6 @@ data Kingdom = Kingdom { year :: Int -- current year
                        , agriculture :: Agriculture
                        } deriving (Show)
 
-
 intro :: IO ()
 intro = do
   putStrLn "                 HAMURABI"
@@ -88,9 +87,6 @@ performance p e d pop
           putStrLn "A FANTASTIC PERFORMANCE!!!  CHARLEMAGNE, DISREALI, AND"
           putStrLn "JEFFERSON COMBINED COULD NOT HAVE DONE BETTER!"
 
-
-
-
 oops :: Int -> IO ()
 oops dead = do
   putStrLn $ "YOU STARVED " ++ show dead ++ " PEOPLE IN ONE YEAR!!!"
@@ -118,14 +114,15 @@ report (Kingdom y p pop agri) = do
 
 loop :: Kingdom -> Score -> IO ()
 loop k@(Kingdom y _ pop agri) s
-  | y == 11 = tallyScore (people pop) (acres agri) s
+  | y == 11 = do
+      report k
+      tallyScore (people pop) (acres agri) s
   | otherwise = do
       report k
       newKingdom <- updateKingdom k
       let newScore = updateScore s newKingdom
       loop newKingdom newScore
       
-
 -- Get input
 ask :: String -> IO Int
 ask prompt = do
@@ -195,8 +192,6 @@ plantAcres k@(Kingdom y p pop (Agriculture b a _ _)) = do
               return (Kingdom y p pop
                       (Agriculture (b + x*i - r) a (x*i) r)) 
               
-              
-
 buySellAcres :: Kingdom -> IO Kingdom
 buySellAcres (Kingdom y p pop (Agriculture b a h r)) = do
   landPrice <- getStdRandom $ randomR (17, 27) :: IO Int
@@ -225,7 +220,6 @@ notEnoughPeople :: Int -> IO ()
 notEnoughPeople x = do
   putStrLn $ "HAMURABI:  BUT YOU HAVE ONLY " ++ show x
   putStrLn "PEOPLE TO TEND THE FIELDS!  NOW THEN,"
-  
               
 -- Each person needs 20 bushels a year for food.
 feedPeople :: Kingdom -> IO Kingdom
@@ -273,13 +267,10 @@ check n
       exitSuccess
   | otherwise = return ()
 
-
-
 updateScore :: Score -> Kingdom -> Score
-updateScore (Score d pct) (Kingdom y pl (Population p _ s) _) =
-  (Score (d + pox + s) newpct)
-  where pox = if pl then p else 0
-        newpct = (starvedPct + (pct * dpy)) / dy
+updateScore (Score d pct) (Kingdom y _ (Population p _ s) _) =
+  (Score (d + s) newpct)
+  where newpct = (starvedPct + (pct * dpy)) / dy
           where sd = fromIntegral s :: Double
                 pd = fromIntegral p :: Double
                 dpy = fromIntegral (y - 1) :: Double
@@ -291,7 +282,6 @@ percentChance :: Int -> IO Bool
 percentChance n = do
   r <- getStdRandom $ randomR (1, 100) :: IO Int -- Return random number from 1 to 100
   return $ r <= n
-
 
 main :: IO ()
 main = do
